@@ -1,0 +1,88 @@
+Bugs:
+
+2 improve image viewer
+2 fix right click
+2 thumbnails don't show up in dock
+2 .jpg images dragged from desktop come up wrong size
+2 can't drag .JPG images from desktop (case sensitive)
+2 what's up with the delta flyer in voy8?
+2 use _soundpath (for voyager)
+2 can't export HK texture coord map
+2 thor is messed up
+
+3 model can get in front of texture map
+3 environment mapping isn't quite right
+3 md2 texture coordinates are wrong in .obj export 
+3 bsp - some meshes don't fit
+3 bsp - some meshes are messed up
+
+Bug fixes in B1.1
+
+- fixed opening .mdl models outside of a .pak
+- fixed crash pressing animation keys for models without animations
+
+New features in b1
+
+- Carbonized for Mac OS X
+- Updated for Aqua look and feel
+- Supports more image file formats (pcx, bmp, tga, jpg, wal, psd, gif, png)
+- Improved stability
+
+
+Fixes in 0.8.1a:
+
+- map navigation
+- VEF final changes
+- archive browser window tiling
+- broken .pcx display 
+- garbage in .mdl and  .md2 animation menu
+- crash launching when GL is not installed
+- shader preview
+- pause shaders
+- command keys in animation menu
+- new icons
+- fixed mdl texture exporting
+- fixed problems with the shader editor popup menu
+
+
+New features in 0.8a:
+
+- compile button for .skin, .shader, and animation.cfg files.
+- supports more shader commands
+- command drag textures off of models
+- command option drag texture coordinate maps off of models
+- command double click on a shader to open the shader editor
+- command click on window title to get a directory popup
+- weapon switching (use the number keys)
+- improved map rendering and navigation
+- support for Voyager Elite Force
+- mdr models
+- mp3 player 
+
+
+
+
+Future Enhancements:
+
+
+- search in shaders
+- drag multiple items and folders to the finder
+- pak file editing (drag and drop folders to finder)
+- .mid
+
+- enhance rgbgen
+- handle .wad file resources
+- display DOOM and Quake 1 & 2 levels
+- lighting preferences
+- preferences panel (color settings + all settings in PakRat.cfg)
+- background image
+- exporting to PICT, Quicktime
+- animation control panel
+- opton to merge paks in file browser (CFSArchive)
+- play map sounds/music
+- muliple undo in text views 
+- handle LOD shaders
+- better hex dump
+- change the orientation and size of models relative to the tags they're attached to
+- add multiple models to a scene
+

@@ -1,0 +1,34 @@
+Launch Terminal on OS X and check out the source code from CVS:
+
+	cvs -d:pserver:anonymous@cvs.PakRat.sourceforge.net:/cvsroot/pakrat login 
+
+	When prompted for a password for anonymous, simply press the Enter key.
+
+	cvs -z3 -d:pserver:anonymous@cvs.PakRat.sourceforge.net:/cvsroot/pakrat co PakRat 
+
+	
+	You can also browse the code on the web:
+
+	http://sourceforge.net/cvs/?group_id=6491
+
+Install OpenGL SDK:
+
+	Create a folder called SDK inside your CodeWarrior Pro 6 folder.
+	Install Apple's OpenGL SDK into it. You can download that from
+
+	ftp://ftp.apple.com/developer/opengl/SDK/OpenGL_SDK_1.2.img.bin
+
+	Copy contents of the .dmg into (codeWarrior Pro 8)/SDK/OpenGL1.2	
+
+Decompress Archives:
+
+	decompress AppResources.ppob.sit and AppResources.rsrc.sit
+	into the main PakRat project directory.
+
+Build with CodeWarrior 8:
+
+	MoreFilesLib/MoreFilesLib.mcp
+	zipLib/zipLib.mcp
+	PakRatCarbon7.mcp 
+	
+	

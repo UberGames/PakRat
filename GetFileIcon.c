@@ -1,0 +1,618 @@
+// File Object Handler Utilities for the WASTE Text Engine
+// Part of the WASTE Object Handler Library by Michael Kamprath, kamprath@kagi.com
+// maintenance by John C. Daub, hsoi@eden.com
+//
+// v1.2 28 March 1996,  Cleaned up the file with precompiler directives, removing potential
+//						warning messages, updated PB calls to new function names
+//
+// v1.2.1 4 April 1996. Fixed a bad bug where PBHGetVolParmsAsync() was getting called when
+//						PBHGetVolParmsSync() should have been called instead.
+//
+// v1.2.3 24 September 1996  Changed calls to BlockMove() to use BlockMoveData() instead
+//
+// v1.2.4 17 January 1996.  The 14 routines prototyped in this file were previously all
+//						declared as 'extern'.  If "Activate C++ Compiler" was turned on
+//						this would generate inconsistent linkage errrors ('extern' object
+//						redeclared as 'static').  Removed the 'extern' keyword from the
+//						14 function prototypes and instead wrapped those same declarations
+//						with a __cplusplus guard.  Also removed the 'static' keywords
+						
+#ifndef __ICONS__
+#include <Icons.h>
+#endif
+#ifndef __FINDER__
+#include <Finder.h>
+#endif
+#ifndef __FOLDERS__
+#include <Folders.h>
+#endif
+#ifndef __ERRORS__
+#include <Errors.h>
+#endif
+#ifndef __RESOURCES__
+#include <Resources.h>
+#endif
+#ifndef __LOWMEM__
+#include <LowMem.h>
+#endif
+#include "GetFileIcon.h"
+
+#ifndef true
+#define true 1
+#endif
+
+#ifndef false
+#define false 0
+#endif
+
+//#if PRAGMA_ALIGN_SUPPORTED
+//#pragma options align=mac68k
+//#endif
+
+typedef struct getIconData { OSType		fileCreator;
+                             OSType		fileType;
+                             short		DTRefNum;
+                            } GetIconData;
+//#if PRAGMA_ALIGN_SUPPORTED
+//#pragma options align=reset
+//#endif
+
+#ifdef __cplusplus
+	extern "C" {
+#endif
+
+Boolean IsVolEjected( short vRefNum );
+OSErr GetCustomFileIcon(FSSpec *filespec, IconSelectorValue iconSelector, Handle *theSuite);
+OSErr GetNormalFileIcon(CInfoPBRec *cpb, IconSelectorValue iconSelector, Handle *theSuite);
+void GetFinderFilename(StringPtr _finderFilename);
+pascal OSErr GetIconProc(ResType theType, Handle *theIcon, void *yourDataPtr);
+short FindDesktopDatabase(short firstVRefNum, OSType fileCreator); // returns a DT refnum or 0
+Boolean InOneDesktop(short vRefNum, OSType fileCreator, short *dtRefNum);
+pascal OSErr GetResourceIcons(Handle *theSuite, short theID, long theSelector);
+OSErr CopyEachIcon(Handle theSuite);
+pascal OSErr CopyOneIcon(ResType theType, Handle *theIcon, void *yourDataPtr);
+short FindGenericIconID(OSType theType, Boolean *inFinder);
+pascal OSErr Get1IconSuite(Handle *theSuite, short theID, long theSelector);
+pascal OSErr Get1Icon(ResType theType, Handle *theIcon, short *resID);
+pascal OSErr TestHandle(ResType theType, Handle *theIcon, void *yourDataPtr);
+
+#ifdef __cplusplus
+	}
+#endif
+
+/*	Custom icons numbered -16496 appear in aliases to volumes and
+	servers.  I don't know where this is documented.	*/
+#define	kVolumeAliasIconResource	-16496
+
+
+/*	------------------------------------------------------------------
+	GetFileIcon		Given a file specification for a file, folder, or
+					volume, create an appropriate icon suite
+					and find its label color.
+	------------------------------------------------------------------ */
+pascal OSErr GetFileIcon(
+/* --> */	FSSpec				*thing,
+/* --> */	IconSelectorValue	iconSelector,
+/* <-- */	Handle				*theSuite)
+{
+	CInfoPBRec		cpb;
+	OSErr			err;
+
+
+	*theSuite = NULL;
+
+	if( IsVolEjected(thing->vRefNum) )
+	{
+		err = volOffLinErr;
+	}
+	else
+	{
+		cpb.hFileInfo.ioVRefNum		= thing->vRefNum;
+		cpb.hFileInfo.ioDirID		= thing->parID;
+		cpb.hFileInfo.ioNamePtr		= thing->name;
+		cpb.hFileInfo.ioFDirIndex	= 0;
+		err = PBGetCatInfoSync( &cpb );
+
+		if( !err )
+		{
+			if( (cpb.hFileInfo.ioFlAttrib & ioDirMask) == 0)	// file
+			{
+				if(cpb.hFileInfo.ioFlFndrInfo.fdFlags & kHasCustomIcon)
+				{
+					err = GetCustomFileIcon(thing, iconSelector, theSuite );
+				}
+				else	// no custom icon
+				{
+					err = GetNormalFileIcon(&cpb, iconSelector, theSuite);
+				}
+			}
+			// ----------- end of normal case --------------
+		}	
+	}
+
+	// ------- error handler ---------
+	/*if(thing->parID == fsRtParID)	// a volume
+	{
+		if(err == volOffLinErr)
+		{
+			*labelColor = ttOffline;
+		}
+		err = GetVolumeIcon(thing->vRefNum, iconSelector, theSuite);
+	}*/
+
+	return( err );
+}
+
+
+Boolean	IsVolEjected( short vRefNum )
+{
+	OSErr			err;
+	HVolumeParam	vol_pb;
+	
+	vol_pb.ioNamePtr	= NULL;
+	vol_pb.ioVRefNum	= vRefNum;
+	vol_pb.ioVolIndex	= 0;
+	err = PBHGetVInfoSync( (HParmBlkPtr )&vol_pb );
+	
+	return( (err == noErr) && (vol_pb.ioVDRefNum > 0) );
+}
+
+
+
+OSErr	GetCustomFileIcon(
+/* --> */	FSSpec				*filespec,
+/* --> */	IconSelectorValue	iconSelector,
+/* <-- */	Handle				*theSuite)
+{
+	short	saveResFile, customResFile;
+	OSErr	err;
+	
+	saveResFile = CurResFile();
+	SetResLoad( false );
+	customResFile = FSpOpenResFile(filespec, fsRdPerm);
+
+	SetResLoad( true );
+
+	if(customResFile == -1)
+	{
+		err = ResError();
+	}
+	else
+	{
+		err = GetResourceIcons(theSuite, kCustomIconResource, iconSelector);
+		if( !err )
+		{
+			if( IsSuiteEmpty( *theSuite ) )
+			{
+				err = GetResourceIcons(theSuite, kVolumeAliasIconResource, iconSelector);
+			}
+		}
+
+		CloseResFile( customResFile );
+		UseResFile( saveResFile );
+	}
+	return( err );
+}
+
+
+OSErr	GetNormalFileIcon(
+/* --> */	CInfoPBRec			*cpb,
+/* --> */	IconSelectorValue	iconSelector,
+/* <-- */	Handle				*theSuite)
+{
+	OSErr			err;
+//	long			dataSize;
+//	Handle			iconData;
+//	Byte			iconType;
+	GetIconData		getData;
+	short			iconID;
+	Boolean			inFinder;
+	short			saveResFile, FinderResFile, sysVRefNum;
+	long			sysDirID;
+	Str255			finderName;
+	IconActionUPP	getIconProcPtr;
+
+
+	iconID = FindGenericIconID(cpb->hFileInfo.ioFlFndrInfo.fdType, &inFinder );
+	saveResFile = CurResFile();
+
+	if( inFinder )
+	{
+		FindFolder(kOnSystemDisk, kSystemFolderType, kDontCreateFolder, &sysVRefNum, &sysDirID);
+
+		SetResLoad( false );
+		GetFinderFilename( finderName );
+		FinderResFile = HOpenResFile(sysVRefNum, sysDirID, finderName, fsRdPerm);
+		SetResLoad( true );
+
+		if(FinderResFile == -1)
+		{
+			err = ResError();
+		}
+		else
+		{
+			err = GetResourceIcons(theSuite, iconID, iconSelector);
+			CloseResFile( FinderResFile );
+		}
+	}
+	else	// icons in desktop DB or in System
+	{
+		getData.DTRefNum = FindDesktopDatabase(cpb->dirInfo.ioVRefNum,
+			cpb->hFileInfo.ioFlFndrInfo.fdCreator );
+
+		if(getData.DTRefNum != 0)	// the right icons are in some desktop
+		{
+			err = NewIconSuite( theSuite );
+			if( !err )
+			{
+				getData.fileCreator	= cpb->hFileInfo.ioFlFndrInfo.fdCreator;
+				getData.fileType	= cpb->hFileInfo.ioFlFndrInfo.fdType;
+				if(getData.fileType == kApplicationAliasType)
+				{
+					getData.fileType = 'APPL';
+				}
+				getIconProcPtr = NewIconActionProc( GetIconProc );
+				err = ForEachIconDo(*theSuite, iconSelector, getIconProcPtr, &getData);
+				DisposeRoutineDescriptor( getIconProcPtr );
+			}
+		}
+		if( (getData.DTRefNum == 0) || IsSuiteEmpty( *theSuite ) )
+		{
+			UseResFile( 0 );
+			err = GetResourceIcons(theSuite, iconID, iconSelector);
+		}
+	}
+
+	UseResFile( saveResFile );
+
+	return( err );
+}
+
+
+void GetFinderFilename(
+/* <-- */	StringPtr       _finderFilename)
+{
+	Str255          _defaultFinderFilename="\pFinder";
+	StringPtr       _lowMemFinderName;
+
+	_lowMemFinderName = LMGetFinderName();
+	if( (_lowMemFinderName != (StringPtr )nil) && (_lowMemFinderName[0] > 0))
+		BlockMoveData(_lowMemFinderName, _finderFilename, _lowMemFinderName[0]+1);
+	else
+		BlockMoveData(_defaultFinderFilename, _finderFilename, _defaultFinderFilename[0]+1);
+}
+
+
+/*	------------------------------------------------------------------
+	GetIcon		This is an IconAction procedure to fill in one
+					slot of an icon suite, given a file type, creator,
+					and desktop database.
+	------------------------------------------------------------------ */
+pascal OSErr GetIconProc(ResType theType, Handle *theIcon, void *yourDataPtr)
+{
+	OSErr			err;
+	GetIconData		*data;
+	DTPBRec			deskRec;
+
+	err = noErr;
+	data = (GetIconData *)yourDataPtr;
+	*theIcon = NewHandle( kLarge8BitIconSize );
+
+	if( !(*theIcon) )
+	{
+		err = memFullErr;
+	}
+	else
+	{
+		HLock( *theIcon );
+	
+		deskRec.ioDTRefNum		= data->DTRefNum;
+		deskRec.ioDTBuffer		= **theIcon;
+		deskRec.ioDTReqCount	= kLarge8BitIconSize;
+		deskRec.ioFileCreator	= data->fileCreator;
+		deskRec.ioFileType		= data->fileType;
+	
+		switch( theType )
+		{
+			case large1BitMask:
+				deskRec.ioIconType = kLargeIcon;
+				break;
+	
+			case large4BitData:
+				deskRec.ioIconType = kLarge4BitIcon;
+				break;
+	
+			case large8BitData:
+				deskRec.ioIconType = kLarge8BitIcon;
+				break;
+	
+			case small1BitMask:
+				deskRec.ioIconType = kSmallIcon;
+				break;
+	
+			case small4BitData:
+				deskRec.ioIconType = kSmall4BitIcon;
+				break;
+	
+			case small8BitData:
+				deskRec.ioIconType = kSmall8BitIcon;
+				break;
+			
+			default:
+				// The desktop database does not have "mini" icons
+				deskRec.ioIconType = 1000;
+				break;
+		}
+
+		err = PBDTGetIconSync( &deskRec );
+		if(err == noErr)
+		{
+			HUnlock( *theIcon );
+			SetHandleSize(*theIcon, deskRec.ioDTActCount);
+		}
+		else
+		{
+			DisposeHandle( *theIcon );
+			*theIcon = NULL;
+			err = noErr;
+		}
+	}
+	return( err );
+}
+
+
+/*	------------------------------------------------------------------
+	Find_desktop_database			Find the reference number of a
+									desktop database containing icons
+									for a specified creator code.
+	The search begins on a specified volume, but covers all volumes.
+	------------------------------------------------------------------ */
+short	FindDesktopDatabase(
+/* --> */	short	firstVRefNum,
+/* --> */	OSType	fileCreator)	// returns a DT refnum or 0
+{
+//	OSErr			err;
+	VolumeParam		vpb;
+	short			DTRefNum = 0;
+
+	if( !InOneDesktop(firstVRefNum, fileCreator, &DTRefNum) )
+	{
+		vpb.ioNamePtr = NULL;
+		for(vpb.ioVolIndex = 1; PBGetVInfoSync((ParmBlkPtr )&vpb) == noErr; ++vpb.ioVolIndex)
+		{
+			if(vpb.ioVRefNum == firstVRefNum)
+				continue;
+			if( InOneDesktop(vpb.ioVRefNum, fileCreator, &DTRefNum) )
+				break;
+		}
+	}
+	return( DTRefNum );
+}
+
+
+
+/*	------------------------------------------------------------------
+	InOneDesktop			Determine whether the desktop database for
+							one particular volume contains icons for
+							a given creator code, and if so, return its
+							reference number.
+	------------------------------------------------------------------
+*/
+Boolean	InOneDesktop(
+/* --> */	short	vRefNum,
+/* --> */	OSType	fileCreator,
+/* <-- */	short	*dtRefNum)
+{
+	OSErr		err;
+	DTPBRec		deskRec;
+	Boolean		retVal;
+	
+	HParamBlockRec         _myHPB;
+	GetVolParmsInfoBuffer  _infoBuffer;
+	
+	retVal = false;	// default to failure
+	deskRec.ioNamePtr = NULL;
+	deskRec.ioVRefNum = vRefNum;
+	
+	// check to make sure we've got a database first:
+	_myHPB.ioParam.ioNamePtr  = (StringPtr)nil;
+	_myHPB.ioParam.ioVRefNum  = vRefNum;
+	_myHPB.ioParam.ioBuffer   = (Ptr)&_infoBuffer;
+	_myHPB.ioParam.ioReqCount = sizeof(_infoBuffer);
+	if ( ((err=PBHGetVolParmsSync(&_myHPB))!=noErr) ||
+	((_infoBuffer.vMAttrib&(1L<<bHasDesktopMgr))==0) )
+		return( retVal );
+
+	err = PBDTGetPath( &deskRec );
+	if( !err )
+	{
+		/*	We want to ignore any non-icon data, such as the 'paul'
+			item that is used for drag-and-drop. */
+		deskRec.ioFileCreator = fileCreator;
+		deskRec.ioIndex = 1;
+		do
+		{
+			deskRec.ioTagInfo = 0;
+			err = PBDTGetIconInfoSync( &deskRec );
+			deskRec.ioIndex += 1;
+		}while( (err == noErr) && (deskRec.ioIconType <= 0) );
+	
+		if(err == noErr)
+		{
+			retVal = true;
+			*dtRefNum = deskRec.ioDTRefNum;
+		}
+	}
+	return( retVal );
+}
+
+
+pascal OSErr GetResourceIcons(
+/* <-- */	Handle	*theSuite,
+/* --> */	short	theID,
+/* --> */	long	theSelector)
+{
+	OSErr	err;
+	
+	err = Get1IconSuite(theSuite, theID, theSelector);
+	if(err == noErr)
+	{
+		err = CopyEachIcon( *theSuite );
+	}
+	return( err );
+}
+
+
+pascal OSErr CopyOneIcon(
+/* --> */	ResType		/*theType*/,
+/* <-> */	Handle		*theIcon,
+/* --- */	void		*/*yourDataPtr*/)
+{
+	OSErr	err;
+	
+	if(*theIcon != NULL)
+	{
+		LoadResource( *theIcon );
+		err = HandToHand( theIcon );
+		if(err != noErr)
+			*theIcon = NULL;
+	}
+	return( noErr );
+}
+
+
+OSErr CopyEachIcon(
+/* <-> */	Handle theSuite)
+{
+	IconActionUPP	copyOneIconProc;
+	OSErr			err;
+	copyOneIconProc = NewIconActionProc( CopyOneIcon );
+	err = ForEachIconDo(theSuite, svAllAvailableData, copyOneIconProc, NULL);
+	DisposeRoutineDescriptor( copyOneIconProc );
+	return( err );
+}
+
+//#if PRAGMA_ALIGN_SUPPORTED
+//#pragma options align=mac68k
+//#endif
+typedef struct genericIconInfo { OSType type; short id; } GenericIconInfo;
+//#if PRAGMA_ALIGN_SUPPORTED
+//#pragma options align=reset
+//#endif
+
+static GenericIconInfo gGenericFinderIcons[]={ {'ifil',12500},
+                                               {'ifil',12500},
+                                               {'sfil',14000},
+                                               {'ffil',14500},
+                                               {'tfil',14501},
+                                               {'kfil',14750},
+                                               {'FFIL',15500},
+                                               {'DFIL',15750}
+                                              };
+static GenericIconInfo gGenericSysIcons[]={ {kContainerFolderAliasType,genericFolderIconResource},
+                                            {kContainerTrashAliasType,trashIconResource},
+                                            {kSystemFolderAliasType,systemFolderIconResource},
+                                            {'INIT',genericExtensionIconResource},
+                                            {'APPL',genericApplicationIconResource},
+                                            {'dfil',genericDeskAccessoryIconResource},
+                                            {'pref',genericPreferencesIconResource},
+                                            {kAppleMenuFolderAliasType,appleMenuFolderIconResource},
+                                            {kControlPanelFolderAliasType,controlPanelFolderIconResource},
+                                            {kExtensionFolderAliasType,extensionsFolderIconResource},
+                                            {kPreferencesFolderAliasType,preferencesFolderIconResource},
+                                            {kStartupFolderAliasType,startupFolderIconResource},
+                                            {kApplicationAliasType,genericApplicationIconResource},
+                                            {kExportedFolderAliasType,ownedFolderIconResource},
+                                            {kDropFolderAliasType,dropFolderIconResource},
+                                            {kSharedFolderAliasType,sharedFolderIconResource},
+                                            {kMountedFolderAliasType,mountedFolderIconResource}
+                                           };
+
+
+short	FindGenericIconID(
+/* --> */	OSType theType,
+/* <-- */	Boolean	*inFinder)
+{
+	
+   short id=genericDocumentIconResource; // default
+   GenericIconInfo *_icon, *_endIcon;
+   
+    for (_icon=gGenericFinderIcons,_endIcon=_icon+sizeof(gGenericFinderIcons)/sizeof(GenericIconInfo);
+         (_icon<_endIcon)&&(_icon->type!=theType); _icon++) ;
+    if (!(*inFinder=(_icon<_endIcon)))
+        for (_icon=gGenericSysIcons,_endIcon=_icon+sizeof(gGenericSysIcons)/sizeof(GenericIconInfo);
+             (_icon<_endIcon)&&(_icon->type!=theType); _icon++) ;
+    if (_icon<_endIcon)
+        id = _icon->id;
+
+	return( id );
+}
+
+
+/*	--------------------------------------------------------------------
+	Get1IconSuite			Like GetIconSuite, but only looks in
+							the current resource file.
+	
+	In case you're wondering why it would be necessary to ensure that
+	icons come from only one file, suppose you're looking at a
+	file that has its custom icon bit set, but for some reason does
+	not contain a custom icon, or at least not a full family.
+	Way down the resource chain, there may be another file, say a
+	font file, that does have a full family of custom icons. 
+	So you get an unexpected icon.
+	-------------------------------------------------------------------- */
+
+pascal OSErr Get1IconSuite(
+/* <-- */	Handle	*theSuite,
+/* --> */	short	theID,
+/* --> */	long	theSelector)
+{
+	OSErr		err;
+	IconActionUPP	get1IconProc;
+
+	err = NewIconSuite( theSuite );
+	if( !err )
+	{
+		get1IconProc = NewIconActionProc( Get1Icon );
+		err = ForEachIconDo(*theSuite, theSelector, get1IconProc, &theID);
+		DisposeRoutineDescriptor( get1IconProc );
+	}
+	return( err );
+}
+
+
+pascal OSErr Get1Icon(
+/* --> */	ResType	theType,
+/* <-> */	Handle	*theIcon,
+/* --> */	short	*resID)
+{
+	*theIcon = Get1Resource(theType, *resID);
+
+	return( noErr );
+}
+
+
+pascal OSErr TestHandle(ResType /*theType*/, Handle *theIcon, void *yourDataPtr)
+{
+	if(*theIcon != NULL)
+		*(Boolean *)yourDataPtr = false;	// not empty!
+
+	return( noErr );
+}
+
+
+Boolean IsSuiteEmpty( Handle theSuite )
+{
+	Boolean			retVal;
+	IconActionUPP	testHandleProc;
+
+	testHandleProc = NewIconActionProc( TestHandle );
+	
+	retVal = true;
+	ForEachIconDo(theSuite, svAllAvailableData, testHandleProc, &retVal);
+	DisposeRoutineDescriptor( testHandleProc );
+
+	return( retVal );
+}
+
+
